@@ -154,14 +154,22 @@ def main():
         print(f"Rien de nouveau. {len(current)} annonce(s) toujours en ligne.")
         return
 
+    # IMPORTANT : on memorise TOUT DE SUITE les annonces comme "vues",
+    # avant meme d'essayer d'envoyer les alertes. Ainsi, si une notification
+    # echoue (ex: probleme Twilio), la prochaine execution ne renverra pas
+    # en double des alertes pour des annonces deja traitees.
+    save_seen(seen | set(current.keys()))
+
     for listing_id in new_ids:
         url = current[listing_id]
-        notify(url)
-        print(f"Alerte envoyee ({ALERT_MODE}) pour l'annonce {listing_id}")
-
-    # Memorise toutes les annonces actuellement visibles (pas seulement
-    # les nouvelles), pour ne pas re-notifier celles qui restent en ligne.
-    save_seen(seen | set(current.keys()))
+        try:
+            notify(url)
+            print(f"Alerte envoyee ({ALERT_MODE}) pour l'annonce {listing_id}")
+        except Exception as e:
+            # On isole l'echec : les autres annonces de ce passage doivent
+            # quand meme etre traitees, et l'etat est deja sauvegarde donc
+            # pas de re-notification en boucle au prochain passage.
+            print(f"Erreur lors de la notification pour {listing_id}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":
