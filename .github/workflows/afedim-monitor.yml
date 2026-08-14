@@ -1,1 +1,41 @@
+name: Surveillance Afedim
 
+on:
+  schedule:
+    # Toutes les 5 minutes (minimum pratique impose par GitHub Actions ;
+    # les vraies executions peuvent glisser de quelques minutes en periode
+    # de charge, ce n'est pas garanti a la seconde pres)
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}  # permet de le lancer manuellement pour tester
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Recuperer le depot
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installer les dependances
+        run: pip install requests twilio
+
+      - name: Lancer la verification
+        env:
+          SEARCH_URL: ${{ secrets.SEARCH_URL }}
+          TWILIO_SID: ${{ secrets.TWILIO_SID }}
+          TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
+          TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
+          TWILIO_TO: ${{ secrets.TWILIO_TO }}
+        run: python afedim_monitor.py
+
+      - name: Sauvegarder l'etat (annonces deja vues)
+        run: |
+          git config user.name "afedim-bot"
+          git config user.email "afedim-bot@users.noreply.github.com"
+          git add seen_listings.json
+          git diff --staged --quiet || git commit -m "Mise a jour des annonces vues"
+          git push
