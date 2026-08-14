@@ -8,6 +8,9 @@ on:
     - cron: "*/5 * * * *"
   workflow_dispatch: {}  # permet de le lancer manuellement pour tester
 
+permissions:
+  contents: write  # necessaire pour que le job puisse commit/push seen_listings.json
+
 jobs:
   check:
     runs-on: ubuntu-latest
