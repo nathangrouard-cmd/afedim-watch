@@ -58,11 +58,12 @@ CALL_MESSAGE = (
     "Nouvelle annonce Afedim disponible. Consultez votre telephone."
 )
 
-# Repere chaque annonce par son URL "Fiche" complete, qui contient un ID
-# stable (ex: .../2-pieces/0050103/Fiche). Ce pattern est plus robuste
-# qu'un scraping base sur des classes CSS, qui peuvent changer.
+# Repere chaque annonce par son URL "Fiche", qui contient un ID stable
+# (ex: .../2-pieces/0050103/Fiche). Le domaine est optionnel car le HTML
+# du site utilise parfois des liens relatifs (juste le chemin, sans
+# "https://www.afedim.fr" devant).
 LISTING_PATTERN = re.compile(
-    r'(https://www\.afedim\.fr/fr/location/annonces/[a-zA-Z\-]+/[a-z0-9\-]+/[a-z0-9\-]+pieces?/(\d{6,8})/Fiche)'
+    r'((?:https://www\.afedim\.fr)?/fr/location/annonces/[a-zA-Z\-]+/[a-z0-9\-]+/[a-z0-9\-]+pieces?/(\d{6,8})/Fiche)'
 )
 
 HEADERS = {
@@ -124,7 +125,18 @@ def fetch_current_listings() -> dict:
     matches = LISTING_PATTERN.findall(resp.text)
     listings = {}
     for url, listing_id in matches:
-        listings[listing_id] = url
+        full_url = url if url.startswith("http") else f"https://www.afedim.fr{url}"
+        listings[listing_id] = full_url
+
+    if not listings:
+        # Diagnostic pour comprendre pourquoi rien n'a ete trouve : la page
+        # a-t-elle seulement charge normalement ?
+        print(f"[diagnostic] Statut HTTP: {resp.status_code}, taille reponse: {len(resp.text)} caracteres")
+        if "biens disponibles" in resp.text or "Fiche" in resp.text:
+            print("[diagnostic] Le mot 'Fiche' ou 'biens disponibles' est present, mais le motif de lien n'a pas matche -> probablement un souci de regex.")
+        else:
+            print("[diagnostic] Aucune trace d'annonce dans le HTML brut -> la page charge probablement son contenu via JavaScript (le contenu n'est pas dans le HTML initial recupere par 'requests').")
+
     return listings
 
 
