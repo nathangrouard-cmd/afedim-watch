@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write  # necessaire pour que le job puisse commit/push seen_listings.json
 
+concurrency:
+  group: afedim-monitor
+  cancel-in-progress: false  # on laisse l'execution en cours se terminer plutot que de la couper
+
 jobs:
   check:
     runs-on: ubuntu-latest
