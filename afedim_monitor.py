@@ -39,7 +39,13 @@ STATE_FILE = Path(os.environ.get("STATE_FILE", "seen_listings.json"))
 TWILIO_SID = os.environ["TWILIO_SID"]
 TWILIO_TOKEN = os.environ["TWILIO_TOKEN"]
 TWILIO_FROM = os.environ["TWILIO_FROM"]
-TWILIO_TO = os.environ["TWILIO_TO"]
+TWILIO_TO = os.environ["TWILIO_TO"]  # numero appele en premier (ex: la copine)
+TWILIO_TO_BACKUP = os.environ.get("TWILIO_TO_BACKUP", "")  # appele si TWILIO_TO ne repond pas (ex: toi)
+
+# Combien de temps on attend qu'un appel soit decroche avant de le
+# considerer comme "pas de reponse" (en secondes). Un appel non-decroche
+# sonne generalement 20-30s avant de tomber sur repondeur/messagerie.
+CALL_ANSWER_TIMEOUT = int(os.environ.get("CALL_ANSWER_TIMEOUT", "25"))
 
 # "sms", "call", ou "both" (recommande : both -> l'appel reveille,
 # le SMS garde le lien sous la main pour le relire au calme)
@@ -84,19 +90,16 @@ def save_seen(seen: set):
     STATE_FILE.write_text(json.dumps(sorted(seen)))
 
 
-def send_sms(body: str):
+def send_sms(body: str, to_number: str = None):
     from twilio.rest import Client
     client = Client(TWILIO_SID, TWILIO_TOKEN)
-    client.messages.create(body=body[:300], from_=TWILIO_FROM, to=TWILIO_TO)
+    client.messages.create(body=body[:300], from_=TWILIO_FROM, to=to_number or TWILIO_TO)
 
 
-def make_call():
-    """Declenche un appel vocal automatique (texte-vers-parole en francais)."""
+def make_call(to_number: str):
+    """Declenche un appel vers le numero donne et retourne son SID."""
     from twilio.rest import Client
     client = Client(TWILIO_SID, TWILIO_TOKEN)
-    # TwiML inline : pas besoin d'heberger de fichier, Twilio genere la
-    # voix a la volee. Le <Say> repete + <Pause> laisse le temps de
-    # decrocher et d'ecouter avant que l'appel ne se termine.
     twiml = f"""
     <Response>
         <Say language="fr-FR">{CALL_MESSAGE}</Say>
@@ -104,18 +107,53 @@ def make_call():
         <Say language="fr-FR">{CALL_MESSAGE}</Say>
     </Response>
     """
-    client.calls.create(twiml=twiml, from_=TWILIO_FROM, to=TWILIO_TO)
+    call = client.calls.create(twiml=twiml, from_=TWILIO_FROM, to=to_number)
+    return call.sid
+
+
+def wait_for_call_outcome(call_sid: str) -> str:
+    """Interroge Twilio jusqu'a ce que l'appel soit termine, et retourne
+    son statut final ('completed' = decroche, 'no-answer'/'busy'/'failed' = pas decroche)."""
+    from twilio.rest import Client
+    client = Client(TWILIO_SID, TWILIO_TOKEN)
+    terminal_statuses = {"completed", "busy", "failed", "no-answer", "canceled"}
+    elapsed = 0
+    poll_interval = 3
+    while elapsed < CALL_ANSWER_TIMEOUT + 15:  # marge de securite au-dela du timeout de sonnerie
+        call = client.calls(call_sid).fetch()
+        if call.status in terminal_statuses:
+            return call.status
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+    return "timeout"
+
+
+def call_until_answered(to_number: str, attempts: int, label: str) -> bool:
+    """Essaie d'appeler to_number jusqu'a 'attempts' fois. Retourne True
+    des qu'un appel est decroche (statut 'completed'), False si aucun ne l'a ete."""
+    for attempt in range(1, attempts + 1):
+        sid = make_call(to_number)
+        print(f"Appel {attempt}/{attempts} vers {label} declenche (sid={sid})")
+        status = wait_for_call_outcome(sid)
+        print(f"Resultat de l'appel vers {label}: {status}")
+        if status == "completed":
+            return True
+        if attempt < attempts:
+            time.sleep(CALL_GAP_SECONDS)
+    return False
 
 
 def notify(url: str):
     if ALERT_MODE in ("sms", "both"):
-        send_sms(f"Nouvelle annonce Afedim ! {url}")
+        send_sms(f"Nouvelle annonce Afedim ! {url}", TWILIO_TO)
+        if TWILIO_TO_BACKUP:
+            send_sms(f"Nouvelle annonce Afedim ! {url}", TWILIO_TO_BACKUP)
+
     if ALERT_MODE in ("call", "both"):
-        for attempt in range(1, CALL_ATTEMPTS + 1):
-            make_call()
-            print(f"Appel {attempt}/{CALL_ATTEMPTS} declenche")
-            if attempt < CALL_ATTEMPTS:
-                time.sleep(CALL_GAP_SECONDS)
+        answered = call_until_answered(TWILIO_TO, CALL_ATTEMPTS, "numero principal")
+        if not answered and TWILIO_TO_BACKUP:
+            print("Pas de reponse du numero principal, appel du numero de secours...")
+            call_until_answered(TWILIO_TO_BACKUP, CALL_ATTEMPTS, "numero de secours")
 
 
 def fetch_current_listings() -> dict:
