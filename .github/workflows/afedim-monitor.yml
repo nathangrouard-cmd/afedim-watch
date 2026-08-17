@@ -37,6 +37,7 @@ jobs:
           TWILIO_TOKEN: ${{ secrets.TWILIO_TOKEN }}
           TWILIO_FROM: ${{ secrets.TWILIO_FROM }}
           TWILIO_TO: ${{ secrets.TWILIO_TO }}
+          TWILIO_TO_BACKUP: ${{ secrets.TWILIO_TO_BACKUP }}
         run: python afedim_monitor.py
 
       - name: Sauvegarder l'etat (annonces deja vues)
