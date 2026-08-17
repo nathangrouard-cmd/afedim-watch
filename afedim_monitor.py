@@ -192,11 +192,17 @@ def main():
         print(f"Rien de nouveau. {len(current)} annonce(s) toujours en ligne.")
         return
 
-    # IMPORTANT : on memorise TOUT DE SUITE les annonces comme "vues",
-    # avant meme d'essayer d'envoyer les alertes. Ainsi, si une notification
-    # echoue (ex: probleme Twilio), la prochaine execution ne renverra pas
-    # en double des alertes pour des annonces deja traitees.
-    save_seen(seen | set(current.keys()))
+    # IMPORTANT : on memorise TOUT DE SUITE l'etat actuel, avant meme
+    # d'essayer d'envoyer les alertes. Ainsi, si une notification echoue
+    # (ex: probleme Twilio), la prochaine execution ne renverra pas en
+    # double des alertes pour des annonces deja traitees.
+    #
+    # On remplace la memoire par les IDs actuellement en ligne (au lieu
+    # d'accumuler indefiniment) : une annonce retiree du site (louee,
+    # expiree...) disparait donc automatiquement du fichier. Si elle
+    # revient un jour en ligne, elle sera de nouveau consideree comme
+    # "nouvelle" et re-declenchera une alerte -- comportement voulu.
+    save_seen(set(current.keys()))
 
     for listing_id in new_ids:
         url = current[listing_id]
